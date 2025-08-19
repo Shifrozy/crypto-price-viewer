@@ -1,41 +1,49 @@
-import requests
-import tkinter as tk
-from tkinter import ttk
+#include <Trade\Trade.mqh>   // Trading library
 
-# Function to fetch coin price
-def get_price():
-    coin = coin_var.get().lower()
-    url = "https://api.coingecko.com/api/v3/simple/price"
-    params = {"ids": coin, "vs_currencies": "usd"}
-    try:
-        response = requests.get(url, params=params)
-        data = response.json()
-        price = data[coin]["usd"]
-        result_label.config(text=f"{coin.capitalize()} Price: ${price}")
-    except Exception as e:
-        result_label.config(text=f"Error: {e}")
+CTrade trade;                // Create trade object
 
-# GUI window
-root = tk.Tk()
-root.title("Crypto Price Viewer")
-root.geometry("300x200")
+// User settings
+input double LotSize      = 0.10;    // Lot size
+input double TP_Percent   = 0.10;    // Take profit in %
+input double SL_Percent   = 0.05;    // Stop loss in %
+input double MaxSpread    = 3.0;     // Max spread allowed (in points)
 
-# Coin selection
-coin_var = tk.StringVar()
-coin_label = tk.Label(root, text="Choose Coin:")
-coin_label.pack(pady=5)
+bool tradePlaced = false;   // To ensure only first tick trade
 
-coins = ["bitcoin", "ethereum", "dogecoin", "solana", "litecoin", "Sui"]
-coin_dropdown = ttk.Combobox(root, textvariable=coin_var, values=coins, state="readonly")
-coin_dropdown.current(0)
-coin_dropdown.pack(pady=5)
+void OnTick()
+{
+   // If trade already placed, do nothing
+   if(tradePlaced) return;
+   
+   // Check if no position open for this symbol
+   if(!PositionSelect(_Symbol))
+   {
+      // Spread check
+      double spread = (Ask - Bid) / _Point;
+      if(spread > MaxSpread)
+      {
+         Print("Spread too high: ", spread, " points. No trade opened.");
+         return;
+      }
 
-# Get Price Button
-get_price_btn = tk.Button(root, text="Get Price", command=get_price)
-get_price_btn.pack(pady=5)
+      // Price levels
+      double price = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+      double tp    = price + (price * TP_Percent / 100.0);
+      double sl    = price - (price * SL_Percent / 100.0);
 
-# Result Label
-result_label = tk.Label(root, text="", font=("Arial", 12))
-result_label.pack(pady=10)
+      // Normalize prices
+      tp = NormalizeDouble(tp, _Digits);
+      sl = NormalizeDouble(sl, _Digits);
 
-root.mainloop()
+      // Send buy order
+      if(trade.Buy(LotSize, _Symbol, price, sl, tp))
+      {
+         Print("Buy order placed successfully! TP: ", tp, " | SL: ", sl);
+         tradePlaced = true;  // Only first tick
+      }
+      else
+      {
+         Print("Order failed: ", _LastError);
+      }
+   }
+}
